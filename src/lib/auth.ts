@@ -1,11 +1,12 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { User } from '@/types';
 import { DatabaseError } from '@/lib/errors';
+import { initiatePKCEFlow } from '@/lib/pkce-client';
 
-// Create a single instance of the Supabase client
+// Create Supabase client with your project credentials
 const supabase = createBrowserClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  'https://htydmeedbkwavmwkgbeg.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0eWRtZWVkYmt3YXZtd2tnYmVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI5NDY1MTEsImV4cCI6MjA1ODUyMjUxMX0.zmD6-eN59O5ph2lifO98oMguF6DaFzJ-ZS9-TE-XJMg'
 );
 
 export class AuthService {
@@ -85,46 +86,64 @@ export class AuthService {
   }
 
   async signInWithGoogle() {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
-        },
-      },
-    });
-
-    if (error) throw error;
-    return data;
+    try {
+      // Use our PKCE helper
+      const data = await initiatePKCEFlow();
+      return data;
+    } catch (error) {
+      console.error('Error during Google sign-in:', error);
+      throw error;
+    }
   }
 
   async handleGoogleSignIn(user: User) {
     try {
-      const googleAvatarUrl = user.user_metadata?.avatar_url;
+      console.log('Handling Google sign-in for user:', user);
       
-      if (googleAvatarUrl) {
-        // Create or update profile with Google data
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .upsert({
-            id: user.id,
-            google_avatar_url: googleAvatarUrl,
-            full_name: user.user_metadata?.full_name,
-            email: user.email,
-            avatar_url: googleAvatarUrl, // Use Google avatar as default
-          })
-          .select()
-          .single();
+      // Generate a unique username if not provided
+      const username = user.user_metadata?.username || `user_${user.id.substring(0, 8)}`;
+      
+      // Log the user metadata we're working with
+      console.log('User metadata:', user.user_metadata);
+      
+      // Create or update profile with Google data
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          username,
+          google_avatar_url: user.user_metadata?.avatar_url || null,
+          full_name: user.user_metadata?.full_name || user.user_metadata?.name || '',
+          email: user.email || '',
+          avatar_url: user.user_metadata?.avatar_url || null,
+        }, {
+          onConflict: 'id',
+          ignoreDuplicates: false
+        })
+        .select()
+        .single();
 
-        if (profileError) throw profileError;
-
-        // Download and store Google avatar
-        await this.downloadAndStoreGoogleAvatar(user.id, googleAvatarUrl);
+      if (profileError) {
+        console.error('Profile update error:', profileError);
+        throw profileError;
       }
 
-      return user;
+      console.log('Profile updated successfully:', profile);
+
+      // Download and store Google avatar if available
+      if (user.user_metadata?.avatar_url) {
+        try {
+          const avatarUrl = await this.downloadAndStoreGoogleAvatar(user.id, user.user_metadata.avatar_url);
+          if (avatarUrl) {
+            console.log('Avatar processed:', avatarUrl);
+          }
+        } catch (error) {
+          console.error('Error processing avatar:', error);
+          // Continue even if avatar processing fails
+        }
+      }
+
+      return profile;
     } catch (error) {
       console.error('Error handling Google sign-in:', error);
       throw error;
@@ -190,14 +209,52 @@ export class AuthService {
   async getCurrentUser(): Promise<User | null> {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
+      if (userError) {
+        console.error('Auth user error:', userError);
+        throw userError;
+      }
       if (!user) return null;
 
+      // First try to get the profile
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single();
+
+      // If profile doesn't exist, create it
+      if (profileError && profileError.code === 'PGRST116') {
+        console.log('Profile not found, creating new profile...');
+        const { data: newProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            id: user.id,
+            username: `user_${user.id.substring(0, 8)}`,
+            full_name: user.user_metadata?.full_name || '',
+            avatar_url: user.user_metadata?.avatar_url || '',
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error('Create profile error:', createError);
+          throw new DatabaseError('Failed to create profile');
+        }
+
+        return {
+          id: user.id,
+          email: user.email || '',
+          user_metadata: user.user_metadata,
+          full_name: newProfile.full_name,
+          username: newProfile.username,
+          bio: newProfile.bio,
+          website: newProfile.website,
+          location: newProfile.location,
+          avatar_url: newProfile.avatar_url,
+          created_at: newProfile.created_at,
+          updated_at: newProfile.updated_at,
+        };
+      }
 
       if (profileError) {
         console.error('Get profile error:', profileError);

@@ -10,9 +10,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <div className="relative min-h-screen flex flex-col">
-      {!isDashboard && <Navbar />}
-      <main className={`flex-1 ${isDashboard ? '' : 'py-4'}`}>{children}</main>
-      {!isDashboard && <Footer />}
+      <div className="flex-1">
+        {!isDashboard && <Navbar />}
+        <main className={`${isDashboard ? '' : 'py-4'}`}>{children}</main>
+        {!isDashboard && <Footer />}
+      </div>
     </div>
   );
 } 

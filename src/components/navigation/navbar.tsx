@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/auth-context";
 
 const navigation = [
@@ -21,14 +21,18 @@ const navigation = [
       { name: "API Reference", href: "/api" },
     ]
   },
-  { name: "Dashboard", href: "/dashboard", requiresAuth: true },
 ];
 
 export function Navbar() {
   const pathname = usePathname();
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
-  const { user } = useAuth();
+  const [mounted, setMounted] = useState(false);
+  const { user, isLoading } = useAuth();
   const isAuthenticated = !!user;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const toggleDropdown = (name: string) => {
     if (openDropdown === name) {
@@ -37,6 +41,10 @@ export function Navbar() {
       setOpenDropdown(name);
     }
   };
+
+  if (!mounted || isLoading) {
+    return null;
+  }
 
   return (
     <nav className="fixed top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -117,6 +125,12 @@ export function Navbar() {
         <div className="flex items-center space-x-4">
           {!isAuthenticated ? (
             <>
+              <Link
+                href="/dashboard"
+                className="inline-flex h-10 items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-black border border-black hover:bg-black/5"
+              >
+                Dashboard
+              </Link>
               <Link
                 href="/login"
                 className={cn(

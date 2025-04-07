@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Create a table for public profiles
 CREATE TABLE profiles (
     id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL PRIMARY KEY,
-    updated_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
     username TEXT UNIQUE,
     full_name TEXT,
     bio TEXT,
@@ -39,9 +39,9 @@ BEGIN
     INSERT INTO public.profiles (id, username, full_name, avatar_url)
     VALUES (
         new.id,
-        new.raw_user_meta_data->>'username',
-        new.raw_user_meta_data->>'full_name',
-        new.raw_user_meta_data->>'avatar_url'
+        COALESCE(new.raw_user_meta_data->>'username', 'user_' || substr(new.id::text, 1, 8)),
+        COALESCE(new.raw_user_meta_data->>'full_name', ''),
+        COALESCE(new.raw_user_meta_data->>'avatar_url', '')
     );
     RETURN new;
 END;
@@ -52,6 +52,28 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- Create a function to ensure profile exists
+CREATE OR REPLACE FUNCTION public.ensure_profile_exists()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = NEW.id) THEN
+        INSERT INTO public.profiles (id, username, full_name)
+        VALUES (
+            NEW.id,
+            COALESCE(NEW.raw_user_meta_data->>'username', 'user_' || substr(NEW.id::text, 1, 8)),
+            COALESCE(NEW.raw_user_meta_data->>'full_name', '')
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create a trigger to ensure profile exists on auth.users changes
+DROP TRIGGER IF EXISTS ensure_profile_exists ON auth.users;
+CREATE TRIGGER ensure_profile_exists
+    AFTER INSERT OR UPDATE ON auth.users
+    FOR EACH ROW EXECUTE PROCEDURE public.ensure_profile_exists();
 
 -- Create a table for user settings
 CREATE TABLE user_settings (

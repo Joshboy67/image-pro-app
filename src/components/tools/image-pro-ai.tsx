@@ -1,21 +1,23 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, Upload, Trash2, Loader2 } from 'lucide-react';
+import { Download, Upload, Trash2, Loader2, Wand2 } from 'lucide-react';
 
-export function ImageUpscaler() {
+type EnhancementType = 'denoise' | 'sharpen' | 'color' | 'contrast';
+
+export function ImageProAI() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [originalPreview, setOriginalPreview] = useState<string | null>(null);
   const [processedPreview, setProcessedPreview] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
-  const [originalDimensions, setOriginalDimensions] = useState<{ width: number; height: number } | null>(null);
-  const [processedDimensions, setProcessedDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [enhancementType, setEnhancementType] = useState<EnhancementType>('denoise');
+  const [intensity, setIntensity] = useState<number>(50);
 
   const validateFile = (file: File) => {
     const maxSize = 10 * 1024 * 1024; // 10MB
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+    const allowedTypes = ['image/jpeg', 'image/png'];
     
     if (file.size > maxSize) {
       throw new Error('File size exceeds 10MB limit');
@@ -25,7 +27,7 @@ export function ImageUpscaler() {
     }
   };
 
-  const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const file = event.target.files?.[0];
       if (!file) return;
@@ -42,20 +44,9 @@ export function ImageUpscaler() {
       }
       
       setSelectedImage(file);
-      const previewUrl = URL.createObjectURL(file);
-      setOriginalPreview(previewUrl);
+      setOriginalPreview(URL.createObjectURL(file));
       setProcessedPreview(null);
       setProgress(0);
-
-      // Get image dimensions
-      const img = new Image();
-      img.src = previewUrl;
-      await new Promise((resolve) => {
-        img.onload = () => {
-          setOriginalDimensions({ width: img.width, height: img.height });
-          resolve(null);
-        };
-      });
     } catch (err: any) {
       setError(err.message);
     }
@@ -73,11 +64,9 @@ export function ImageUpscaler() {
     setProcessedPreview(null);
     setError(null);
     setProgress(0);
-    setOriginalDimensions(null);
-    setProcessedDimensions(null);
   };
 
-  const handleUpscale = async () => {
+  const handleEnhance = async () => {
     if (!selectedImage) return;
     
     setIsProcessing(true);
@@ -87,38 +76,29 @@ export function ImageUpscaler() {
     try {
       const formData = new FormData();
       formData.append('image', selectedImage);
+      formData.append('type', enhancementType);
+      formData.append('intensity', intensity.toString());
 
       setProgress(20);
 
-      const response = await fetch('/api/upscale', {
+      const response = await fetch('/api/enhance', {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to upscale image. Please try again.');
+        throw new Error(errorData.error || 'Failed to enhance image. Please try again.');
       }
 
       setProgress(60);
 
       const blob = await response.blob();
       const processedUrl = URL.createObjectURL(blob);
-      
-      // Get processed image dimensions
-      const img = new Image();
-      img.src = processedUrl;
-      await new Promise((resolve) => {
-        img.onload = () => {
-          setProcessedDimensions({ width: img.width, height: img.height });
-          resolve(null);
-        };
-      });
-      
       setProcessedPreview(processedUrl);
       setProgress(100);
     } catch (err: any) {
-      setError(err.message || 'Failed to upscale image. Please try again.');
+      setError(err.message || 'Failed to enhance image. Please try again.');
     } finally {
       setIsProcessing(false);
     }
@@ -129,7 +109,7 @@ export function ImageUpscaler() {
       const link = document.createElement('a');
       link.href = processedPreview;
       const timestamp = new Date().getTime();
-      link.download = `upscaled-image-${timestamp}.jpg`;
+      link.download = `enhanced-image-${timestamp}.jpg`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -147,14 +127,7 @@ export function ImageUpscaler() {
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {/* Upload/Original section */}
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-sm font-medium text-gray-700">Original Image</h3>
-            {originalDimensions && (
-              <span className="text-xs text-gray-500">
-                {originalDimensions.width} × {originalDimensions.height}px
-              </span>
-            )}
-          </div>
+          <h3 className="text-sm font-medium text-gray-700">Original Image</h3>
           
           {!originalPreview ? (
             <label className="relative flex flex-col items-center justify-center h-64 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
@@ -168,7 +141,7 @@ export function ImageUpscaler() {
               <input 
                 type="file" 
                 className="hidden" 
-                accept="image/jpeg,image/png,image/jpg" 
+                accept="image/jpeg,image/png" 
                 onChange={handleImageSelect} 
               />
             </label>
@@ -191,21 +164,14 @@ export function ImageUpscaler() {
         
         {/* Results section */}
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-sm font-medium text-gray-700">Upscaled Image (2x)</h3>
-            {processedDimensions && (
-              <span className="text-xs text-gray-500">
-                {processedDimensions.width} × {processedDimensions.height}px
-              </span>
-            )}
-          </div>
+          <h3 className="text-sm font-medium text-gray-700">Enhanced Image</h3>
           
           <div className={`relative h-64 bg-gray-100 rounded-lg overflow-hidden ${!processedPreview ? 'flex items-center justify-center' : ''}`}>
             {processedPreview ? (
               <>
                 <img 
                   src={processedPreview} 
-                  alt="Upscaled" 
+                  alt="Enhanced" 
                   className="w-full h-full object-contain" 
                 />
                 <button
@@ -224,7 +190,7 @@ export function ImageUpscaler() {
                   </>
                 ) : (
                   <p className="text-sm text-gray-500">
-                    Upload an image and click "Upscale Image"
+                    Upload an image and select enhancement options
                   </p>
                 )}
               </div>
@@ -233,9 +199,44 @@ export function ImageUpscaler() {
         </div>
       </div>
       
+      {/* Enhancement Options */}
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Enhancement Type
+            </label>
+            <select
+              value={enhancementType}
+              onChange={(e) => setEnhancementType(e.target.value as EnhancementType)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              <option value="denoise">Noise Reduction</option>
+              <option value="sharpen">Sharpen</option>
+              <option value="color">Color Enhancement</option>
+              <option value="contrast">Contrast Adjustment</option>
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Intensity ({intensity}%)
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="100"
+              value={intensity}
+              onChange={(e) => setIntensity(Number(e.target.value))}
+              className="w-full"
+            />
+          </div>
+        </div>
+      </div>
+      
       <div className="flex justify-center">
         <button
-          onClick={handleUpscale}
+          onClick={handleEnhance}
           disabled={!selectedImage || isProcessing}
           className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -246,8 +247,8 @@ export function ImageUpscaler() {
             </>
           ) : (
             <>
-              <Upload className="w-5 h-5 mr-2" />
-              Upscale Image
+              <Wand2 className="w-5 h-5 mr-2" />
+              Enhance Image
             </>
           )}
         </button>

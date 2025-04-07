@@ -20,6 +20,7 @@ export default function ProfilePage() {
   });
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isRemovingBackground, setIsRemovingBackground] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -29,6 +30,8 @@ export default function ProfilePage() {
   useEffect(() => {
     const loadProfile = async () => {
       try {
+        setIsInitialLoading(true);
+        setError(null);
         const profile = await authService.getCurrentUser();
         if (profile) {
           setFormData({
@@ -39,10 +42,15 @@ export default function ProfilePage() {
             location: profile.location || '',
             avatar_url: profile.avatar_url || '',
           });
+          if (profile.avatar_url) {
+            setAvatarPreview(profile.avatar_url);
+          }
         }
       } catch (err) {
         console.error('Error loading profile:', err);
-        setError('Failed to load profile data');
+        setError('Failed to load profile data. Please try refreshing the page.');
+      } finally {
+        setIsInitialLoading(false);
       }
     };
     loadProfile();
@@ -91,6 +99,11 @@ export default function ProfilePage() {
     setSuccess(null);
 
     try {
+      // Validate required fields
+      if (!formData.username.trim()) {
+        throw new Error('Username is required');
+      }
+
       await authService.updateProfile(formData);
       setSuccess('Profile updated successfully!');
       setIsEditing(false);
@@ -115,18 +128,39 @@ export default function ProfilePage() {
             location: profile.location || '',
             avatar_url: profile.avatar_url || '',
           });
+          if (profile.avatar_url) {
+            setAvatarPreview(profile.avatar_url);
+          }
         }
       } catch (err) {
         console.error('Error loading profile:', err);
+        setError('Failed to reset profile data');
       }
     };
     loadProfile();
-    setAvatarPreview(null);
     setSelectedFile(null);
     setIsEditing(false);
     setError(null);
     setSuccess(null);
   };
+
+  if (isInitialLoading) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <div className="animate-pulse">
+            <div className="h-8 bg-gray-200 rounded w-1/4 mb-6"></div>
+            <div className="space-y-4">
+              <div className="h-24 bg-gray-200 rounded"></div>
+              <div className="h-10 bg-gray-200 rounded"></div>
+              <div className="h-10 bg-gray-200 rounded"></div>
+              <div className="h-10 bg-gray-200 rounded"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto p-6">

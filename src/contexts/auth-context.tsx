@@ -2,43 +2,130 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase';
-import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
+import { User as SupabaseUser, Session, AuthChangeEvent } from '@supabase/supabase-js';
+import { useRouter } from 'next/navigation';
+
+type AuthUser = {
+  id: string;
+  email: string | null;
+  photoURL: string | null;
+  profileImage: string | null;
+};
 
 type AuthContextType = {
-  user: User | null;
+  user: AuthUser | null;
   session: Session | null;
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string) => Promise<{ error: any, data: any }>;
   signInWithGoogle: () => Promise<{ error: any }>;
-  signOut: () => Promise<{ error: any }>;
+  signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: any }>;
+  updateProfileImage: (imageUrl: string) => Promise<void>;
 };
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  session: null,
+  isLoading: true,
+  signOut: async () => {},
+  signIn: async () => ({ error: null }),
+  signUp: async () => ({ error: null, data: null }),
+  signInWithGoogle: async () => ({ error: null }),
+  resetPassword: async () => ({ error: null }),
+  updateProfileImage: async () => {},
+});
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const supabase = createClient();
+  const router = useRouter();
+
+  const fetchProfileData = async (userId: string) => {
+    try {
+      const cacheKey = `profile_${userId}`;
+      
+      const cachedData = sessionStorage.getItem(cacheKey);
+      if (cachedData) {
+        return JSON.parse(cachedData).avatar_url || null;
+      }
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return null;
+      }
+      
+      if (data) {
+        sessionStorage.setItem(cacheKey, JSON.stringify(data));
+      }
+      
+      return data?.avatar_url || null;
+    } catch (err) {
+      console.error('Error in fetchProfileData:', err);
+      return null;
+    }
+  };
+
+  const initializeAuth = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        const profileImage = await fetchProfileData(session.user.id);
+        
+        const userData: AuthUser = {
+          id: session.user.id,
+          email: session.user.email || null,
+          photoURL: session.user.user_metadata?.avatar_url || null,
+          profileImage: profileImage,
+        };
+        
+        setUser(userData);
+        setSession(session);
+        
+        sessionStorage.setItem('userData', JSON.stringify(userData));
+      }
+    } catch (error) {
+      console.error('Error initializing auth:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Initial session check
-    setIsLoading(true);
-    
-    // Get session from storage
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
-      setIsLoading(false);
-    });
+    const cachedUserData = sessionStorage.getItem('userData');
+    if (cachedUserData) {
+      setUser(JSON.parse(cachedUserData));
+    }
 
-    // Listen for auth changes
+    initializeAuth();
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: AuthChangeEvent, newSession: Session | null) => {
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
+      async (_event: AuthChangeEvent, session: Session | null) => {
+        if (session?.user) {
+          const profileImage = await fetchProfileData(session.user.id);
+          const userData: AuthUser = {
+            id: session.user.id,
+            email: session.user.email || null,
+            photoURL: session.user.user_metadata?.avatar_url || null,
+            profileImage: profileImage,
+          };
+          setUser(userData);
+          setSession(session);
+          sessionStorage.setItem('userData', JSON.stringify(userData));
+        } else {
+          setUser(null);
+          setSession(null);
+          sessionStorage.removeItem('userData');
+        }
         setIsLoading(false);
       }
     );
@@ -47,6 +134,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  const updateProfileImage = async (imageUrl: string) => {
+    if (!user?.id || !session?.user?.id) return;
+    
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          avatar_url: imageUrl,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (!error) {
+        setUser({
+          ...user,
+          profileImage: imageUrl,
+        });
+      } else {
+        console.error('Error updating profile image:', error);
+      }
+    } catch (err) {
+      console.error('Error in updateProfileImage:', err);
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setSession(null);
+      sessionStorage.clear();
+      localStorage.removeItem('supabase.auth.token');
+      router.push('/');
+    } catch (error) {
+      console.error('Error signing out:', error);
+      router.push('/');
+    }
+  };
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -77,11 +203,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    return { error };
-  };
-
   const resetPassword = async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
@@ -97,16 +218,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signInWithGoogle,
     signOut,
-    resetPassword
+    resetPassword,
+    updateProfileImage,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  return useContext(AuthContext);
 }; 

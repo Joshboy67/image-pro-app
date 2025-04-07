@@ -130,6 +130,8 @@ export function SignInForm() {
                 validationErrors.email ? 'border-red-500' : 'border-gray-300'
               } rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm`}
               placeholder="you@example.com"
+              autoComplete="email"
+              required
             />
             {validationErrors.email && (
               <p className="mt-1 text-sm text-red-600">{validationErrors.email}</p>
@@ -156,6 +158,8 @@ export function SignInForm() {
                 validationErrors.password ? 'border-red-500' : 'border-gray-300'
               } rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm pr-10`}
               placeholder="••••••••"
+              autoComplete="current-password"
+              required
             />
             <button 
               type="button"
