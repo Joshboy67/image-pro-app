@@ -35,7 +35,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { SignOutButton } from '@/components/sign-out-button';
+import { SignOutButton } from '@/components/auth/signout-button-simple';
 
 // Tool definitions with improved descriptions and organization
 const tools = [
@@ -571,39 +571,18 @@ export default function DashboardLayout({
                 </button>
                 
                 {showSettings && (
-                  <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 z-50">
-                    <div className="py-1">
-                      <button
-                        onClick={() => setDarkMode(!darkMode)}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-                      >
-                        {darkMode ? (
-                          <>
-                            <Sun className="inline-block w-4 h-4 mr-2" />
-                            Light Mode
-                          </>
-                        ) : (
-                          <>
-                            <Moon className="inline-block w-4 h-4 mr-2" />
-                            Dark Mode
-                          </>
-                        )}
-                      </button>
+                  <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                    <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="user-menu">
                       <Link
                         href="/dashboard/settings"
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+                        role="menuitem"
                       >
-                        <Settings className="inline-block w-4 h-4 mr-2" />
                         Settings
                       </Link>
-                      <Link
-                        href="/dashboard/help"
-                        className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-                      >
-                        <HelpCircle className="inline-block w-4 h-4 mr-2" />
-                        Help & Support
-                      </Link>
-                      <SignOutButton />
+                      <SignOutButton 
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+                      />
                     </div>
                   </div>
                 )}
