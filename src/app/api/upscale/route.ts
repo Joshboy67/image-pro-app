@@ -1,58 +1,91 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import sharp from 'sharp';
+import { createClient } from '@/lib/supabase';
+import { initializeSharp } from '@/lib/sharp-config';
 
-export async function POST(request: Request) {
+// Initialize Sharp on the server side
+await initializeSharp();
+
+export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
-    const image = formData.get('image') as File;
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
 
-    if (!image) {
+    if (!session) {
       return NextResponse.json(
-        { error: 'No image provided' },
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const formData = await request.formData();
+    const file = formData.get('file') as File;
+    const scale = parseInt(formData.get('scale') as string) || 2;
+
+    if (!file) {
+      return NextResponse.json(
+        { error: 'No file provided' },
         { status: 400 }
       );
     }
 
-    // Convert the File to Buffer
-    const buffer = Buffer.from(await image.arrayBuffer());
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      return NextResponse.json(
+        { error: 'Invalid file type. Please upload an image.' },
+        { status: 400 }
+      );
+    }
 
-    // Get original image dimensions
-    const metadata = await sharp(buffer).metadata();
-    const originalWidth = metadata.width || 0;
-    const originalHeight = metadata.height || 0;
+    // Convert File to Buffer
+    const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Calculate new dimensions (2x upscale)
-    const newWidth = originalWidth * 2;
-    const newHeight = originalHeight * 2;
-
-    // Process the image with Sharp
-    const processedImage = await sharp(buffer)
+    // Process image with Sharp
+    const processedImage = sharp(buffer)
       .resize({
-        width: newWidth,
-        height: newHeight,
-        fit: 'fill',
-        withoutEnlargement: false,
-        kernel: 'lanczos3'
+        width: Math.round(scale * 100),
+        height: Math.round(scale * 100),
+        fit: 'inside',
+        withoutEnlargement: false
       })
-      .sharpen({
-        sigma: 1.2,
-        m1: 0.5,
-        m2: 0.5
-      })
-      .jpeg({ 
-        quality: 95,
-        mozjpeg: true,
-        chromaSubsampling: '4:4:4'
-      })
-      .toBuffer();
+      .png({ quality: 100 });
 
-    // Return the processed image
-    return new NextResponse(processedImage, {
-      headers: {
-        'Content-Type': 'image/jpeg',
-        'Content-Disposition': 'attachment; filename="upscaled-image.jpg"'
-      }
+    // Get the processed image buffer
+    const processedBuffer = await processedImage.toBuffer();
+
+    // Generate a unique filename
+    const timestamp = Date.now();
+    const originalName = file.name.split('.')[0];
+    const newFilename = `${originalName}_upscaled_${timestamp}.png`;
+
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('upscaled-images')
+      .upload(`${session.user.id}/${newFilename}`, processedBuffer, {
+        contentType: 'image/png',
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (error) {
+      console.error('Error uploading to Supabase:', error);
+      return NextResponse.json(
+        { error: 'Failed to save upscaled image' },
+        { status: 500 }
+      );
+    }
+
+    // Get the public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('upscaled-images')
+      .getPublicUrl(`${session.user.id}/${newFilename}`);
+
+    return NextResponse.json({
+      success: true,
+      url: publicUrl,
+      filename: newFilename
     });
+
   } catch (error) {
     console.error('Error processing image:', error);
     return NextResponse.json(
@@ -60,4 +93,9 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+// Add OPTIONS method for CORS
+export async function OPTIONS() {
+  return NextResponse.json({}, { status: 200 });
 } 
